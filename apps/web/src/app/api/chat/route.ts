@@ -9,6 +9,7 @@ import { noSession } from '@/lib/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 const ChatBodySchema = z.object({
   conversationId: z.string().uuid().optional(),
