@@ -5,6 +5,8 @@ export interface Candidate {
   model: ModelInfo;
   provider: Provider;
   credentialId: string;
+  /** Key used for health/cooldown; defaults to credentialId. */
+  healthKey?: string;
   score: number;
   reason: string;
 }

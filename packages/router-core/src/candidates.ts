@@ -101,7 +101,7 @@ export async function buildDecision(input: CandidateInput): Promise<RoutingDecis
 
   // ── 2. Health ────────────────────────────────────────────────────────────
   const healthByCredential = new Map<string, CredentialHealth>();
-  const credIds = [...new Set(fits.map(credentialOf))];
+  const credIds = [...new Set(fits.map(healthKeyOf))];
   await Promise.all(
     credIds.map(async (id) => {
       const h = (await health.get(id)) ?? { ...NEUTRAL_HEALTH };
@@ -110,7 +110,7 @@ export async function buildDecision(input: CandidateInput): Promise<RoutingDecis
   );
 
   const healthy = fits.filter((m) => {
-    const h = healthByCredential.get(credentialOf(m));
+    const h = healthByCredential.get(healthKeyOf(m));
     return !h || h.cooldownUntil <= now;
   });
 
@@ -149,7 +149,7 @@ export async function buildDecision(input: CandidateInput): Promise<RoutingDecis
 
   const family = taskFamily(request);
   const top = selected[0]!;
-  const topHealth = healthByCredential.get(credentialOf(top)) ?? NEUTRAL_HEALTH;
+  const topHealth = healthByCredential.get(healthKeyOf(top)) ?? NEUTRAL_HEALTH;
   const topQuality = qualityOf(top, input.qualityPrior);
 
   return {
@@ -168,11 +168,12 @@ function toCandidate(
   _index: number,
   prior: Record<string, number> | undefined,
 ): Candidate {
-  const h = healthByCredential.get(credentialOf(model)) ?? NEUTRAL_HEALTH;
+  const h = healthByCredential.get(healthKeyOf(model)) ?? NEUTRAL_HEALTH;
   return {
     model,
     provider: model.provider,
     credentialId: credentialOf(model),
+    healthKey: healthKeyOf(model),
     score: scoreCandidate({
       model,
       request,
@@ -198,7 +199,7 @@ function rank(
   const hint = request.hints;
 
   const scores = models.map((model) => {
-    const h = healthByCredential.get(credentialOf(model)) ?? NEUTRAL_HEALTH;
+    const h = healthByCredential.get(healthKeyOf(model)) ?? NEUTRAL_HEALTH;
     const quality = qualityOf(model, prior, family);
     return {
       model,
@@ -217,7 +218,7 @@ function rank(
 
   if (hint?.preferSpeed) {
     for (const entry of scores) {
-      const h = healthByCredential.get(credentialOf(entry.model)) ?? NEUTRAL_HEALTH;
+      const h = healthByCredential.get(healthKeyOf(entry.model)) ?? NEUTRAL_HEALTH;
       entry.score -= (h.ttftEmaMs / 3000) * 0.8;
     }
   }
@@ -246,6 +247,11 @@ export function qualityOf(
     map['general'] ??
     0.5
   );
+}
+
+// Rate limits are mostly per model per key, so a 429 cools only that model.
+function healthKeyOf(model: ModelInfo & { credentialId?: string }): string {
+  return model.credentialId ? `${model.credentialId}:${model.modelId}` : model.provider;
 }
 
 function credentialOf(model: ModelInfo & { credentialId?: string }): string {

@@ -16,10 +16,14 @@ export function getStore(): Store {
   return g.__omniStore;
 }
 
+export async function ownerInfo(req: NextRequest): Promise<{ owner: string; signedIn: boolean } | undefined> {
+  const user = await signedInUser(req.headers);
+  if (user) return { owner: user.id, signedIn: true };
+  const sid = sessionIdFrom(req);
+  return sid ? { owner: await getStore().resolveOwner(sid), signedIn: false } : undefined;
+}
+
 /** Signed-in user's id if there is one, otherwise this browser's guest id. */
 export async function ownerFrom(req: NextRequest): Promise<string | undefined> {
-  const user = await signedInUser(req.headers);
-  if (user) return user.id;
-  const sid = sessionIdFrom(req);
-  return sid ? getStore().resolveOwner(sid) : undefined;
+  return (await ownerInfo(req))?.owner;
 }

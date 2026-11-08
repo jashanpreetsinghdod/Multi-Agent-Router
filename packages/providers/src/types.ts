@@ -65,6 +65,15 @@ export function safeMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Read a header from either a fetch `Headers` object or a plain record (SDKs differ). */
+export function headerValue(headers: unknown, name: string): string | undefined {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const h = headers as { get?: (n: string) => string | null } & Record<string, unknown>;
+  if (typeof h.get === 'function') return h.get(name) ?? undefined;
+  const v = h[name] ?? h[name.toLowerCase()];
+  return typeof v === 'string' ? v : undefined;
+}
+
 export function parseRetryAfter(value: string | null | undefined): number | undefined {
   if (!value) return undefined;
   const numeric = Number(value);

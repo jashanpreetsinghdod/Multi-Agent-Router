@@ -15,6 +15,7 @@ import {
 } from '@/lib/credentials';
 import { getStore, ownerFrom } from '@/lib/store';
 import { noSession } from '@/lib/session';
+import { LIMITS, rateLimit } from '@/lib/limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,6 +51,9 @@ export async function POST(req: NextRequest) {
   const owner = await ownerFrom(req);
   if (!owner) return noSession();
   const store = getStore();
+
+  const limited = rateLimit('keys', owner, LIMITS.keyChecks);
+  if (limited) return limited;
 
   const parsed = AddSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -122,6 +126,8 @@ export async function PATCH(req: NextRequest) {
   if (!cred) return NextResponse.json({ error: 'Credential not found' }, { status: 404 });
 
   if (parsed.data.refresh) {
+    const limited = rateLimit('keys', owner, LIMITS.keyChecks);
+    if (limited) return limited;
     const apiKey = await store.credentialSecret(owner, cred.id);
     if (!apiKey) return NextResponse.json({ error: 'Credential not found' }, { status: 404 });
     const discovery = await discoverModels(cred.provider, {

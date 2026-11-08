@@ -22,7 +22,7 @@ import type {
   ValidationResult,
 } from './types.js';
 import { modelsFor } from './catalog.js';
-import { blocksToText, parseRetryAfter, safeMessage } from './types.js';
+import { blocksToText, headerValue, parseRetryAfter, safeMessage } from './types.js';
 
 function toOpenAiMessages(
   request: ChatRequest,
@@ -314,10 +314,7 @@ export class OpenAiAdapter implements ProviderAdapter {
 
     if (error instanceof OpenAiApiError) {
       httpStatus = error.status;
-      const headers = error.headers as unknown as
-        | Record<string, string | undefined>
-        | undefined;
-      retryAfterMs = parseRetryAfter(headers?.['retry-after']);
+      retryAfterMs = parseRetryAfter(headerValue(error.headers, 'retry-after'));
     }
 
     return new AdapterError({

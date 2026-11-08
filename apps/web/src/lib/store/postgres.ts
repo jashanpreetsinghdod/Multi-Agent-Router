@@ -422,13 +422,13 @@ export function createPostgresStore(): Store {
     // ── telemetry + audit ──────────────────────────────────────────────────
     async recordRuns(owner, input) {
       if (input.attempts.length === 0) return;
-      if (!(await ownsConversation(owner, input.conversationId))) return;
+      if (input.conversationId && !(await ownsConversation(owner, input.conversationId))) return;
       await db.insert(runs).values(
         input.attempts.map((a) => {
           const [provider, ...rest] = a.model.split('/');
           return {
-            conversationId: input.conversationId,
-            messageId: input.messageId,
+            conversationId: input.conversationId ?? null,
+            messageId: input.messageId ?? null,
             userId: owner,
             provider: (a.provider || provider || 'unknown').slice(0, 32),
             modelId: (rest.join('/') || a.model).slice(0, 128),
@@ -446,6 +446,26 @@ export function createPostgresStore(): Store {
           };
         }),
       );
+    },
+
+    async monthlySpend(owner) {
+      const [row] = await db
+        .select({ usd: sql<string>`coalesce(sum(${runs.costUsd}), 0)` })
+        .from(runs)
+        .where(and(eq(runs.userId, owner), sql`${runs.createdAt} >= date_trunc('month', now() at time zone 'utc') at time zone 'utc'`));
+      return Number(row?.usd ?? 0);
+    },
+
+    async getMonthlyCap(owner) {
+      const [row] = await db.select({ cap: users.monthlyUsdCap }).from(users).where(eq(users.id, owner)).limit(1);
+      return row?.cap == null ? null : Number(row.cap);
+    },
+
+    async setMonthlyCap(owner, capUsd) {
+      await db
+        .update(users)
+        .set({ monthlyUsdCap: capUsd === null ? null : capUsd.toFixed(4) })
+        .where(eq(users.id, owner));
     },
 
     async audit(owner, action, detail) {

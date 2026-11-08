@@ -13,7 +13,11 @@ interface MemState {
   secrets: Map<string, string>; // credential id -> plaintext key
   conversations: Map<string, ConversationWithMessages & { owner: string }>;
   routerKeys: Map<string, { id: string; owner: string; last4: string; createdAt: Date }>; // by hash
+  spend: Map<string, { month: string; usd: number }>;
+  caps: Map<string, number>;
 }
+
+const monthKey = () => new Date().toISOString().slice(0, 7);
 
 const MAX_CONVERSATIONS = 200;
 
@@ -23,7 +27,12 @@ const state: MemState = (g.__omniMemStore ??= {
   secrets: new Map(),
   conversations: new Map(),
   routerKeys: new Map(),
+  spend: new Map(),
+  caps: new Map(),
 });
+// State created before these maps existed (HMR) needs them added.
+state.spend ??= new Map();
+state.caps ??= new Map();
 
 function bucket(owner: string): Map<string, CredentialRecord> {
   let b = state.credentials.get(owner);
@@ -169,6 +178,22 @@ export const memoryStore: Store = {
     return state.routerKeys.get(keyHash)?.owner;
   },
 
-  async recordRuns() {},
+  async recordRuns(owner, input) {
+    const cost = input.attempts.reduce((s, a) => s + a.costUsd, 0);
+    const month = monthKey();
+    const prev = state.spend.get(owner);
+    state.spend.set(owner, { month, usd: (prev?.month === month ? prev.usd : 0) + cost });
+  },
+  async monthlySpend(owner) {
+    const s = state.spend.get(owner);
+    return s && s.month === monthKey() ? s.usd : 0;
+  },
+  async getMonthlyCap(owner) {
+    return state.caps.get(owner) ?? null;
+  },
+  async setMonthlyCap(owner, capUsd) {
+    if (capUsd === null) state.caps.delete(owner);
+    else state.caps.set(owner, capUsd);
+  },
   async audit() {},
 };

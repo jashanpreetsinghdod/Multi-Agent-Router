@@ -23,7 +23,7 @@ import type {
   ValidationResult,
 } from './types.js';
 import { modelsFor } from './catalog.js';
-import { parseRetryAfter, safeMessage } from './types.js';
+import { headerValue, parseRetryAfter, safeMessage } from './types.js';
 
 const API_VERSION = '2023-06-01';
 
@@ -274,9 +274,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     if (error instanceof AnthropicAPIError) {
       httpStatus = error.status;
-      retryAfterMs = parseRetryAfter(
-        (error.headers?.['retry-after'] as string | undefined) ?? undefined,
-      );
+      retryAfterMs = parseRetryAfter(headerValue(error.headers, 'retry-after'));
     }
 
     return new AdapterError({

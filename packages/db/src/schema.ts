@@ -24,6 +24,7 @@ export const users = pgTable('users', {
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
   password: text('password'),
+  monthlyUsdCap: numeric('monthly_usd_cap', { precision: 12, scale: 4 }),
   retainPrompts: boolean('retain_prompts')
     .notNull()
     .default(true),
@@ -258,7 +259,6 @@ export const runs = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     conversationId: uuid('conversation_id')
-      .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
     messageId: uuid('message_id').references(() => messages.id, {
       onDelete: 'set null',

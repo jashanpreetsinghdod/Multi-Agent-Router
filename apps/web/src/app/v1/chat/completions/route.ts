@@ -4,6 +4,9 @@ import type { CanonicalMessage, ChatRequest } from '@omnirouter/canonical';
 import { parseSseChunk } from '@omnirouter/canonical';
 import { streamChat } from '@/lib/router';
 import { ownerFromBearer } from '@/lib/router-keys';
+import { LIMITS, budgetFor, overBudget, rateLimit } from '@/lib/limits';
+import { getStore } from '@/lib/store';
+import { createHash } from 'node:crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,6 +46,17 @@ export async function POST(req: NextRequest) {
   const owner = await ownerFromBearer(req.headers.get('authorization'));
   if (!owner) {
     return oaiError(401, 'Missing or invalid router API key. Create one in OmniRouter Settings.', 'authentication_error');
+  }
+  const limited = rateLimit('api', owner, LIMITS.api);
+  if (limited) {
+    return new Response(JSON.stringify({ error: { message: 'Rate limit exceeded', type: 'rate_limit_error' } }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json', 'Retry-After': limited.headers.get('Retry-After') ?? '60' },
+    });
+  }
+  const budget = await budgetFor(owner);
+  if (overBudget(budget)) {
+    return oaiError(402, `Monthly spending limit of $${budget.capUsd!.toFixed(2)} reached.`, 'insufficient_quota');
   }
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => null));
@@ -94,7 +108,18 @@ export async function POST(req: NextRequest) {
     messageId: id,
     signal: req.signal,
     enableTools: false,
+    ...(budget.remainingUsd !== undefined ? { budgetUsd: budget.remainingUsd } : {}),
   });
+
+  void outcome
+    .then((o) =>
+      getStore().recordRuns(owner, {
+        requestFingerprint: createHash('sha256').update(id).digest('hex'),
+        ...(o.routedReason ? { routedReason: o.routedReason } : {}),
+        attempts: o.allAttempts,
+      }),
+    )
+    .catch(() => {});
 
   // ── Non-streaming ────────────────────────────────────────────────────────
   if (!body.stream) {

@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import type { CanonicalMessage, ChatRequest } from '@omnirouter/canonical';
 import { streamChat } from '@/lib/router';
-import { getStore, ownerFrom } from '@/lib/store';
+import { getStore, ownerInfo } from '@/lib/store';
+import { LIMITS, budgetFor, overBudget, rateLimit } from '@/lib/limits';
 import { noSession } from '@/lib/session';
 
 export const runtime = 'nodejs';
@@ -18,15 +19,23 @@ const ChatBodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const owner = await ownerFrom(req);
-  if (!owner) return noSession();
+  const who = await ownerInfo(req);
+  if (!who) return noSession();
+  const { owner } = who;
   const store = getStore();
+
+  const limited = rateLimit('chat', owner, who.signedIn ? LIMITS.chatUser : LIMITS.chatGuest);
+  if (limited) return limited;
 
   const parsed = ChatBodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' }, { status: 400 });
   }
   const body = parsed.data;
+
+  const budget = await budgetFor(owner);
+  const blocked = overBudget(budget);
+  if (blocked) return blocked;
 
   const existing = body.conversationId ? await store.getConversation(owner, body.conversationId) : undefined;
   const conv =
@@ -81,6 +90,7 @@ export async function POST(req: NextRequest) {
     messageId: assistantMessageId,
     signal: req.signal,
     enableTools: body.tools ?? true,
+    ...(budget.remainingUsd !== undefined ? { budgetUsd: budget.remainingUsd } : {}),
   });
 
   void outcome

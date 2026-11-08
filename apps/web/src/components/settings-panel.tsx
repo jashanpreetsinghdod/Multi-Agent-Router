@@ -224,6 +224,8 @@ export function SettingsPanel({ open, onClose, onChanged }: SettingsPanelProps) 
             </div>
           </section>
 
+          <SpendingSection />
+
           <section>
             <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Use from other apps</h3>
             <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
@@ -404,5 +406,91 @@ function CredentialCard({
         </div>
       )}
     </div>
+  );
+}
+
+function SpendingSection() {
+  const [spent, setSpent] = useState<number | null>(null);
+  const [cap, setCap] = useState<number | null>(null);
+  const [input, setInput] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const apply = (body: { spentUsd: number; capUsd: number | null }) => {
+    setSpent(body.spentUsd);
+    setCap(body.capUsd);
+    setInput(body.capUsd === null ? '' : String(body.capUsd));
+  };
+
+  useEffect(() => {
+    fetch('/api/usage').then((r) => r.json()).then(apply).catch(() => {});
+  }, []);
+
+  const save = async (value: number | null) => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/usage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capUsd: value }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Could not save');
+      apply(body);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onSave = () => {
+    const trimmed = input.trim();
+    if (!trimmed) return void save(null);
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n < 0) return setError('Enter a positive amount, or leave empty for no limit.');
+    void save(n);
+  };
+
+  const pct = cap && spent !== null ? Math.min(100, (spent / cap) * 100) : 0;
+
+  return (
+    <section>
+      <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Monthly spending limit</h3>
+      <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+        Chats stop once this month&apos;s estimated cost reaches the limit. Estimates use list prices; models marked
+        &quot;price unknown&quot; are not counted. Your provider&apos;s bill is the source of truth.
+      </p>
+      <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+        <div className="text-sm" style={{ color: 'var(--text-primary)' }}>
+          Spent this month: {spent === null ? '…' : `$${spent.toFixed(4)}`}
+          {cap !== null && <span style={{ color: 'var(--text-muted)' }}> of ${cap.toFixed(2)}</span>}
+        </div>
+        {cap !== null && (
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
+            <div className="h-full" style={{ width: `${pct}%`, background: pct >= 90 ? 'var(--error)' : 'var(--accent)' }} />
+          </div>
+        )}
+        <div className="flex gap-2">
+          <div className="flex-1 flex items-center rounded-lg px-3" style={inputStyle}>
+            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>$</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="No limit"
+              className="flex-1 bg-transparent px-1 py-2 text-sm outline-none"
+            />
+          </div>
+          <button onClick={onSave} disabled={saving} className="rounded-lg px-3 text-sm disabled:opacity-40" style={{ background: 'var(--accent)', color: 'white' }}>
+            Save
+          </button>
+        </div>
+        {error && <div className="text-xs" style={{ color: 'var(--error)' }}>{error}</div>}
+      </div>
+    </section>
   );
 }

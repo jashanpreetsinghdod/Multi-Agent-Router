@@ -114,7 +114,7 @@ export async function runCascade(
     const now = Date.now();
 
     // Re-check health — it may have opened since the decision was built.
-    const probe = await health.get(candidate.credentialId);
+    const probe = await health.get(candidate.healthKey ?? candidate.credentialId);
     const cooling = probe !== undefined && probe.cooldownUntil > now;
     if (cooling && index < candidates.length - 1) {
       attempts.push(skippedAttempt(index, candidate, 'provider cooling down'));
@@ -143,7 +143,7 @@ export async function runCascade(
         request: runningRequest,
         model,
         health,
-        credentialId: candidate.credentialId,
+        credentialId: candidate.healthKey ?? candidate.credentialId,
         deps,
         relay,
       });
@@ -240,7 +240,7 @@ export async function runCascade(
             request: runningRequest,
             model,
             health,
-            credentialId: candidate.credentialId,
+            credentialId: candidate.healthKey ?? candidate.credentialId,
             deps,
             relay,
           });

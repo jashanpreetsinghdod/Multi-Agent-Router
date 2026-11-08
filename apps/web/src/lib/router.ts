@@ -39,6 +39,8 @@ export interface StreamChatOptions {
   messageId: string;
   signal?: AbortSignal;
   enableTools?: boolean;
+  /** USD left under the user's monthly cap; undefined = no cap. */
+  budgetUsd?: number;
 }
 
 export interface ChatOutcome extends CascadeResult {
@@ -176,6 +178,7 @@ export function streamChat(opts: StreamChatOptions): {
                 send(event);
               },
               ...(signal ? { signal } : {}),
+              ...(opts.budgetUsd !== undefined ? { budgetUsd: Math.max(0, opts.budgetUsd - totalCost) } : {}),
               includeThinking: true,
             },
           );
@@ -188,6 +191,7 @@ export function streamChat(opts: StreamChatOptions): {
 
           const calls = result.toolCalls ?? [];
           if (!result.ok || calls.length === 0 || signal?.aborted) break;
+          if (opts.budgetUsd !== undefined && totalCost >= opts.budgetUsd) break;
 
           // Run the requested tools and append both turns to the history.
           const results = await Promise.all(

@@ -73,8 +73,9 @@ export interface RouterKeySummary {
 }
 
 export interface RunsInput {
-  conversationId: string;
-  messageId: string;
+  /** Absent for /v1 calls, which have no stored conversation. */
+  conversationId?: string;
+  messageId?: string;
   requestFingerprint: string;
   routedReason?: string;
   attempts: AttemptRecord[];
@@ -118,5 +119,9 @@ export interface Store {
   ownerFromRouterKeyHash(keyHash: string): Promise<string | undefined>;
 
   recordRuns(owner: string, input: RunsInput): Promise<void>;
+  /** Estimated USD spent since the start of the current UTC month. */
+  monthlySpend(owner: string): Promise<number>;
+  getMonthlyCap(owner: string): Promise<number | null>;
+  setMonthlyCap(owner: string, capUsd: number | null): Promise<void>;
   audit(owner: string, action: string, detail?: Record<string, unknown>): Promise<void>;
 }
