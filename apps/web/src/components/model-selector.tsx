@@ -20,9 +20,9 @@ interface ModelSelectorProps {
 }
 
 const AUTO_OPTIONS = [
-  { id: 'auto', label: '⚡ Auto', desc: 'Best model for each message' },
-  { id: 'auto:cheap', label: '💰 Auto (cheap)', desc: 'Prefer low cost' },
-  { id: 'auto:fast', label: '🚀 Auto (fast)', desc: 'Prefer low latency' },
+  { id: 'auto', label: 'Auto', desc: 'Best model for each message' },
+  { id: 'auto:cheap', label: 'Auto (cheap)', desc: 'Prefer low cost' },
+  { id: 'auto:fast', label: 'Auto (fast)', desc: 'Prefer low latency' },
 ];
 
 const PROVIDER_NAMES: Record<string, string> = {

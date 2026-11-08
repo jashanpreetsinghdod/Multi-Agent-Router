@@ -139,7 +139,7 @@ export default function ChatPage() {
                   : 'Web search is not configured on the server (TAVILY_API_KEY). Page reading and date still work.'
               }
             >
-              🔎 Tools {toolsOn ? 'on' : 'off'}
+              Tools {toolsOn ? 'on' : 'off'}
               {toolsOn && !webSearch && ' (no search)'}
             </button>
           </div>
