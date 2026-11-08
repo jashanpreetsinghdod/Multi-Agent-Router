@@ -148,7 +148,7 @@ export function SettingsPanel({ open, onClose, onChanged }: SettingsPanelProps) 
         className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg overflow-y-auto animate-slide-up"
         style={{ background: 'var(--bg-primary)', borderLeft: '1px solid var(--border)' }}
       >
-        <div className="p-6 space-y-8">
+        <div className="p-4 md:p-6 space-y-8">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h2>
             <button

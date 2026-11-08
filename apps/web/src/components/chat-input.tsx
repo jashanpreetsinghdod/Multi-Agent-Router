@@ -50,7 +50,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
   };
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="px-3 md:px-4 pt-2" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
       <div
         className="max-w-3xl mx-auto rounded-2xl flex items-end gap-2 px-4 py-3"
         style={{
@@ -66,7 +66,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
           placeholder={disabled ? 'Add an API key to start chatting…' : 'Send a message…'}
           disabled={disabled}
           rows={1}
-          className="flex-1 bg-transparent resize-none outline-none text-sm placeholder-opacity-50"
+          className="flex-1 bg-transparent resize-none outline-none text-base md:text-sm placeholder-opacity-50"
           style={{
             color: 'var(--text-primary)',
             maxHeight: '200px',
@@ -76,7 +76,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
           onClick={handleSubmit}
           disabled={disabled || (!isLoading && !input.trim())}
           className={cn(
-            'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+            'shrink-0 w-9 h-9 md:w-8 md:h-8 rounded-lg flex items-center justify-center transition-all',
             isLoading
               ? 'hover:opacity-80'
               : 'disabled:opacity-30',
@@ -100,7 +100,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
         </button>
       </div>
       <div
-        className="max-w-3xl mx-auto text-center mt-2 text-xs"
+        className="hidden md:block max-w-3xl mx-auto text-center mt-2 text-xs"
         style={{ color: 'var(--text-muted)' }}
       >
         Press Enter to send, Shift+Enter for newline

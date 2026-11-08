@@ -54,10 +54,10 @@ export function ModelSelector({ value, onChange, models }: ModelSelectorProps) {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80 min-w-0 max-w-[45vw] md:max-w-none"
         style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
       >
-        <span>{selected}</span>
+        <span className="truncate">{selected}</span>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="6 9 12 15 18 9" />
         </svg>
@@ -67,7 +67,7 @@ export function ModelSelector({ value, onChange, models }: ModelSelectorProps) {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
-            className="absolute top-full mt-2 left-0 z-50 rounded-xl py-2 min-w-[280px] max-h-[70vh] overflow-y-auto animate-fade-in"
+            className="absolute top-full mt-2 left-0 z-50 rounded-xl py-2 w-[min(320px,calc(100vw-1.5rem))] max-h-[70vh] overflow-y-auto animate-fade-in"
             style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', boxShadow: '0 8px 30px rgba(0,0,0,0.4)' }}
           >
             <Section title="Auto router">

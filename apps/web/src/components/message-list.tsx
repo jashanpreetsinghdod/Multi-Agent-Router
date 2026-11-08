@@ -35,7 +35,7 @@ export function MessageList({ messages, hasKeys }: MessageListProps) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div className="flex-1 overflow-y-auto px-3 md:px-4 py-4 md:py-6">
       <div className="max-w-3xl mx-auto space-y-6">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
@@ -54,7 +54,7 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: UiMess
   return (
     <div className={cn('animate-fade-in', isUser && 'flex justify-end')}>
       <div
-        className={cn('rounded-2xl px-4 py-3', isUser ? 'ml-auto max-w-[85%]' : 'w-full')}
+        className={cn('rounded-2xl py-3', isUser ? 'px-4 ml-auto max-w-[90%] md:max-w-[85%]' : 'w-full px-1 md:px-4')}
         style={{
           background: isUser ? 'var(--accent-subtle)' : 'transparent',
           border: isUser ? '1px solid var(--border-subtle)' : 'none',
