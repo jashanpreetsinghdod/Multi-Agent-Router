@@ -1,4 +1,9 @@
-import OpenAI from 'openai';
+import OpenAI, {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  APIError as OpenAiApiError,
+  APIUserAbortError,
+} from 'openai';
 import {
   AdapterError,
   type Block,
@@ -15,20 +20,10 @@ import type {
   ModelInfo,
   ProviderAdapter,
   ValidationResult,
-} from '../types.js';
-import { modelsFor } from '../catalog.js';
-import { blocksToText, parseRetryAfter, safeMessage } from '../types.js';
+} from './types.js';
+import { modelsFor } from './catalog.js';
+import { blocksToText, parseRetryAfter, safeMessage } from './types.js';
 
-/**
- * OpenAI adapter, also the base for any OpenAI-compatible endpoint (Groq,
- * OpenRouter, vLLM, LM Studio). Subclass or construct with a different baseUrl.
- *
- * Two provider behaviours handled here that bite in production:
- *  - `cached_tokens` is a subset of `prompt_tokens`. The canonical Usage wants
- *    cache tokens exclusive of input, so they are subtracted.
- *  - `finish_reason: 'length'` mid-tool-call leaves unterminated JSON. Tool
- *    arguments are buffered and only emitted when the index completes.
- */
 function toOpenAiMessages(
   request: ChatRequest,
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
@@ -306,10 +301,10 @@ export class OpenAiAdapter implements ProviderAdapter {
 
   classifyError(error: unknown): ErrorClass {
     if (error instanceof AdapterError) return error.class;
-    if (error instanceof OpenAI.APIError) return classifyOpenAiError(error);
-    if (error instanceof OpenAI.APIConnectionTimeoutError) return 'timeout';
-    if (error instanceof OpenAI.APIConnectionError) return 'overloaded';
-    if (error instanceof OpenAI.APIUserAbortError) return 'timeout';
+    if (error instanceof OpenAiApiError) return classifyOpenAiError(error);
+    if (error instanceof APIConnectionTimeoutError) return 'timeout';
+    if (error instanceof APIConnectionError) return 'overloaded';
+    if (error instanceof APIUserAbortError) return 'timeout';
     return 'unknown';
   }
 
@@ -317,7 +312,7 @@ export class OpenAiAdapter implements ProviderAdapter {
     let httpStatus: number | undefined;
     let retryAfterMs: number | undefined;
 
-    if (error instanceof OpenAI.APIError) {
+    if (error instanceof OpenAiApiError) {
       httpStatus = error.status;
       const headers = error.headers as unknown as
         | Record<string, string | undefined>
@@ -349,7 +344,7 @@ export class OpenAiAdapter implements ProviderAdapter {
   }
 }
 
-export function classifyOpenAiError(error: OpenAI.APIError): ErrorClass {
+export function classifyOpenAiError(error: OpenAiApiError): ErrorClass {
   const status = error.status;
   const code = String(
     (error as { code?: string | null }).code ?? '',
@@ -398,7 +393,6 @@ function mapFinishReason(
   }
 }
 
-/** Adapter for any OpenAI-compatible endpoint. Requires a baseUrl per credential. */
 export class OpenAiCompatibleAdapter extends OpenAiAdapter {
   constructor(models: ModelInfo[] = []) {
     super(models, 'compatible');

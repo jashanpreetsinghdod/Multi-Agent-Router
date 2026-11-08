@@ -15,20 +15,15 @@ export type FakeBehavior =
   | {
       kind: 'error_mid_stream';
       errorClass: ErrorClass;
-      /** How much text to emit before the stream dies. */
       charsBeforeDeath: number;
       text?: string;
     }
   | { kind: 'context_too_long' };
 
-/**
- * A controllable provider. The only way to test failover deterministically is
- * to script failures — a real 429 at the wrong moment makes a test flaky.
- *
- * Each model id maps to a queue of behaviors; every call shifts one.
- */
 export class FakeAdapter implements ProviderAdapter {
   readonly id: Provider;
+
+  readonly requests: Array<{ model: string; request: ChatRequest }> = [];
 
   constructor(
     id: Provider,
@@ -38,9 +33,10 @@ export class FakeAdapter implements ProviderAdapter {
     this.id = id;
   }
 
-  /** Script what model `modelId` does on call #1, #2, ... */
   queue(modelId: string, ...behaviors: FakeBehavior[]): void {
-    this.behaviors.set(modelId, behaviors);
+    const existing = this.behaviors.get(modelId) ?? [];
+    existing.push(...behaviors);
+    this.behaviors.set(modelId, existing);
   }
 
   listModels(): ModelInfo[] {
@@ -63,7 +59,7 @@ export class FakeAdapter implements ProviderAdapter {
     modelId: string,
     _config: { apiKey?: string },
   ): AsyncIterable<StreamEvent> {
-    void request;
+    this.requests.push({ model: modelId, request });
     const queue = this.behaviors.get(modelId);
     const behavior: FakeBehavior =
       queue && queue.length > 0 ? (queue.shift() as FakeBehavior) : { kind: 'ok' };

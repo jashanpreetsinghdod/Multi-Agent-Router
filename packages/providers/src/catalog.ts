@@ -1,14 +1,6 @@
 import type { Capabilities, Provider } from '@omnirouter/canonical';
-import type { ModelInfo } from '../types.js';
+import type { ModelInfo } from './types.js';
 
-/**
- * The model catalog. Prices and capabilities are updated by a scheduled job
- * (plan M4/M7) that reconciles against each provider's models endpoint; this
- * static seed is what ships, and what tests run against.
- *
- * Only ids that are current as of this write. If a model id looks unfamiliar,
- * that is expected — the catalog is data, not code, and is expected to drift.
- */
 interface SeedEntry {
   provider: Provider;
   modelId: string;
@@ -90,9 +82,6 @@ const SEED: SeedEntry[] = [
     pricing: { inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3 },
   },
 
-  // ── OpenAI ───────────────────────────────────────────────────────────────
-  // Prices here are the catalog's working figures and are reconciled by the
-  // catalog job; do not treat them as billing truth beyond the snapshot.
   {
     provider: 'openai',
     modelId: 'gpt-4.1',
@@ -176,7 +165,6 @@ export function modelsFor(provider: Provider): ModelInfo[] {
   return MODEL_CATALOG.filter((m) => m.provider === provider);
 }
 
-/** Resolve a router id (`anthropic/claude-opus-5-5`) or a bare model id. */
 export function findModel(id: string): ModelInfo | undefined {
   return (
     MODEL_CATALOG.find((m) => m.routerId === id) ??
@@ -184,11 +172,6 @@ export function findModel(id: string): ModelInfo | undefined {
   );
 }
 
-/**
- * Rough quality prior per task family, 0..1. Seeded by hand from public
- * benchmarks and direct testing; replaced by the feedback job in M4. Kept in
- * the catalog package so the router stays a pure function of catalog + request.
- */
 export const QUALITY_PRIOR: Record<string, Record<string, number>> = {
   reasoning: {
     'anthropic/claude-opus-5-5': 0.97,

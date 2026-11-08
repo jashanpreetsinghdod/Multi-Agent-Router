@@ -1,14 +1,6 @@
 import { z } from 'zod';
 import { UsageSchema } from './response.js';
 
-/**
- * What the browser sees. Separate from StreamEvent because the router adds
- * events no provider adapter ever produces (`switched`, `attempts`, `routed`)
- * and strips things the browser must never receive (thinking signatures).
- *
- * Every event carries `seq` so a reconnecting client can resume, and the
- * events are replayable from the `runs` table.
- */
 const base = { seq: z.number().int().nonnegative() };
 
 export const RoutedEventSchema = z.object({
@@ -17,9 +9,7 @@ export const RoutedEventSchema = z.object({
   runId: z.string(),
   model: z.string(),
   provider: z.string(),
-  /** Human-readable explanation of why this model, shown in the UI. */
   reason: z.string(),
-  /** Ordered candidate list, so the UI can show what is next in the cascade. */
   fallbacks: z.array(z.string()).max(5),
 });
 
@@ -49,7 +39,6 @@ export const ToolEventSchema = z.object({
   id: z.string(),
   name: z.string(),
   state: z.enum(['call', 'result']),
-  /** Present when state === 'result'. Truncated for display. */
   preview: z.string().optional(),
 });
 
@@ -73,7 +62,6 @@ export const ErrorEventSchema = z.object({
   event: z.literal('error'),
   errorClass: z.string(),
   message: z.string(),
-  /** Every attempt made, so a support ticket contains the whole story. */
   attempts: z
     .array(
       z.object({
@@ -99,18 +87,10 @@ export const RouterEventSchema = z.discriminatedUnion('event', [
 
 export type RouterEvent = z.infer<typeof RouterEventSchema>;
 
-/**
- * Encode one event as an SSE frame. `id:` carries the seq so the browser's
- * EventSource sets `Last-Event-ID` automatically on reconnect.
- */
 export function encodeSse(event: RouterEvent): string {
   return `id: ${event.seq}\nevent: ${event.event}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-/**
- * Minimal incremental SSE parser for tests and for the OpenAI-compatible
- * client shim. Not used in the browser (EventSource handles that side).
- */
 export function parseSseChunk(buffer: string): {
   events: Array<{ id?: string; event?: string; data: string }>;
   rest: string;

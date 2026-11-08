@@ -1,28 +1,10 @@
 import type { CredentialHealth, HealthProbe } from './types.js';
 
-/**
- * In-memory health store. Correct for a single process and for tests; the
- * production implementation (M3) is the same interface backed by Redis, with
- * Postgres as the durable mirror. Everything above this layer only knows the
- * `HealthProbe` interface, so swapping it is a one-line change in wiring.
- *
- * Breaker policy:
- *   closed    → normal. Any success resets the failure count.
- *   open      → after `failureThreshold` consecutive failures within
- *               `windowMs`. Skipped entirely until cooldown expires.
- *   half_open → one probe attempt allowed. Success closes the breaker;
- *               failure re-opens with a longer cooldown (capped).
- *
- * The cooldown honours `retry-after` when the provider supplies it, because
- * retrying before a provider's stated window is a guaranteed second failure
- * and, on some providers, counts against you.
- */
 export interface BreakerOptions {
   failureThreshold: number;
   windowMs: number;
   baseCooldownMs: number;
   maxCooldownMs: number;
-  /** EMA smoothing factor for success rate and latency. */
   alpha: number;
   now?: () => number;
 }
@@ -42,7 +24,6 @@ interface BreakerEntry {
   cooldownUntil: number;
   successEma: number;
   ttftEmaMs: number;
-  /** Number of times the breaker has opened without a success in between. */
   openCount: number;
 }
 
@@ -62,8 +43,6 @@ export class InMemoryHealthStore implements HealthProbe {
 
     const now = this.now();
 
-    // Lazy half-open transition: the state machine advances on read, so a
-    // breaker that opens with no further traffic still recovers.
     if (entry.state === 'open' && entry.cooldownUntil <= now) {
       entry.state = 'half_open';
     }
@@ -104,8 +83,6 @@ export class InMemoryHealthStore implements HealthProbe {
       return;
     }
 
-    // Auth failures are not health events — the credential is wrong, and no
-    // amount of cooldown fixes it. Mark it clearly but do not burn a breaker.
     if (outcome.errorClass === 'auth') {
       entry.successEma = Math.max(0, entry.successEma * (1 - alpha));
       this.entries.set(credentialId, entry);
@@ -120,8 +97,6 @@ export class InMemoryHealthStore implements HealthProbe {
     }
     entry.consecutiveFailures += 1;
 
-    // A provider-supplied retry-after is authoritative: respect it even for a
-    // single failure, since retrying early is a guaranteed repeat failure.
     const providerDelay = outcome.retryAfterMs;
     const shouldOpen =
       entry.consecutiveFailures >= this.options.failureThreshold ||
@@ -141,7 +116,6 @@ export class InMemoryHealthStore implements HealthProbe {
     this.entries.set(credentialId, entry);
   }
 
-  /** Test helper: force a credential into a known state. */
   seed(credentialId: string, health: Partial<CredentialHealth>): void {
     const base = this.fresh();
     this.entries.set(credentialId, {

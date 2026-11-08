@@ -18,3 +18,12 @@ export {
 } from './catalog.js';
 
 export { AdapterRegistry, defaultAdapters, registry } from './registry.js';
+
+export {
+  discoverModels,
+  toModelInfo,
+  isCatalogModel,
+  type DiscoveredModel,
+  type DiscoveryResult,
+  type DiscoveryConfig,
+} from './discovery.js';

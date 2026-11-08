@@ -61,6 +61,7 @@ export {
   type AdapterErrorInit,
   isRetryable,
   isFatal,
+  failsOver,
 } from './errors.js';
 
 export {

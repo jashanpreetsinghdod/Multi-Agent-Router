@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-/**
- * A provider is an upstream LLM API. `compatible` covers any endpoint that
- * speaks the OpenAI wire format (OpenRouter, Groq, vLLM, LM Studio, Ollama's
- * OpenAI shim). Users can register their own base URL for it.
- */
 export const ProviderSchema = z.enum([
   'anthropic',
   'openai',

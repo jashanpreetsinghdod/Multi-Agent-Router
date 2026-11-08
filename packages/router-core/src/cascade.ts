@@ -13,11 +13,6 @@ import type { ModelInfo, ProviderAdapter } from '@omnirouter/providers';
 import { buildContinuationRequest, compactRequest } from './compaction.js';
 import type { HealthProbe, RoutingDecision } from './types.js';
 
-/**
- * One attempt through the cascade, as recorded in the `runs` table. Every
- * attempt — including skips and the successful one — produces a row, so the
- * cost and health queries always see the whole story.
- */
 export interface AttemptRecord {
   index: number;
   provider: Provider;
@@ -26,7 +21,6 @@ export interface AttemptRecord {
   errorClass?: ErrorClass;
   httpStatus?: number;
   message?: string;
-  /** Milliseconds from attempt start to first meaningful output. */
   ttftMs?: number;
   inputTokens: number;
   outputTokens: number;
@@ -36,26 +30,24 @@ export interface AttemptRecord {
 
 export interface CascadeResult {
   ok: boolean;
-  /** The model that produced the final answer, if any. */
   provider?: Provider;
   model?: string;
   stopReason?: string;
   usage?: Usage;
   totalCostUsd: number;
   attempts: AttemptRecord[];
-  /** Set when the cascade stopped; suitable for a support ticket. */
   error?: { class: ErrorClass; message: string };
+  toolCalls?: Array<{ id: string; name: string; input: unknown; signature?: string }>;
 }
 
 export interface CascadeDeps {
   adapterFor(provider: Provider): ProviderAdapter;
-  keyFor(provider: Provider): Promise<string>;
-  baseUrlFor?(provider: Provider): string | undefined;
+  keyFor(provider: Provider, credentialId: string): Promise<string>;
+  baseUrlFor?(provider: Provider, credentialId: string): string | undefined;
   health: HealthProbe;
   pricingFor(model: ModelInfo): Pricing | null;
   relay(event: RouterEvent): Promise<void> | void;
   signal?: AbortSignal;
-  /** When set, the cascade stops adding paid attempts past this total USD. */
   budgetUsd?: number;
   includeThinking?: boolean;
 }
@@ -68,21 +60,6 @@ export interface CascadeRequest {
   startSeq?: number;
 }
 
-/**
- * Run the routing decision, one candidate at a time, applying the plan's
- * failure semantics:
- *
- *   before first output  → silent failover, one status line
- *   after first output   → visible handoff; the next model continues the reply
- *   auth / refusal       → stop, no failover
- *   context_too_long     → compact, retry same candidate once, then cascade
- *   all exhausted        → structured error listing every attempt
- *
- * The cascade owns the provider side of the tool loop only: it relays
- * `tool_call` events and stops on `tool_use`. Executing the tool and feeding
- * the result back is the app layer's job, which then calls the cascade again
- * with the extended request.
- */
 export async function runCascade(
   input: CascadeRequest,
   deps: CascadeDeps,
@@ -121,8 +98,7 @@ export async function runCascade(
     };
   }
 
-  // Announce the first candidate up front so the UI shows intent, not a hang.
-  const [first] = candidates;
+  const first = candidates[0]!;
   await relay({
     event: 'routed',
     runId,
@@ -145,8 +121,6 @@ export async function runCascade(
       continue;
     }
 
-    // A mid-stream handoff from a previous candidate: rebuild the request so
-    // this model finishes the interrupted reply rather than starting fresh.
     if (pendingContinuation) {
       runningRequest = buildContinuationRequest(runningRequest, pendingContinuation);
       pendingContinuation = undefined;
@@ -161,11 +135,11 @@ export async function runCascade(
     let outcome: CandidateOutcome;
     let usedCompactRetry = false;
     try {
-      const apiKey = await deps.keyFor(candidate.provider);
+      const apiKey = await deps.keyFor(candidate.provider, candidate.credentialId);
       outcome = await attemptCandidate({
         adapter: deps.adapterFor(candidate.provider),
         apiKey,
-        baseUrl: deps.baseUrlFor?.(candidate.provider),
+        baseUrl: deps.baseUrlFor?.(candidate.provider, candidate.credentialId),
         request: runningRequest,
         model,
         health,
@@ -174,8 +148,6 @@ export async function runCascade(
         relay,
       });
     } catch (error) {
-      // A throw outside the normal adapter error path is a bug. Classify it
-      // rather than letting it escape the cascade unhandled.
       const klass = deps.adapterFor(candidate.provider).classifyError(error);
       outcome = {
         kind: 'failed',
@@ -263,8 +235,8 @@ export async function runCascade(
           usedCompactRetry = true;
           const retry = await attemptCandidate({
             adapter: deps.adapterFor(candidate.provider),
-            apiKey: await deps.keyFor(candidate.provider),
-            baseUrl: deps.baseUrlFor?.(candidate.provider),
+            apiKey: await deps.keyFor(candidate.provider, candidate.credentialId),
+            baseUrl: deps.baseUrlFor?.(candidate.provider, candidate.credentialId),
             request: runningRequest,
             model,
             health,
@@ -295,6 +267,10 @@ export async function runCascade(
           // The compact retry also failed — fall through to normal failover.
         }
 
+        // After the compact retry may have reassigned `outcome`, narrow again.
+        const failed: Extract<CandidateOutcome, { kind: 'failed' }> =
+          outcome as Extract<CandidateOutcome, { kind: 'failed' }>;
+
         // No output yet: silent failover. One status line, nothing more.
         if (index + 1 < candidates.length) {
           continue;
@@ -303,21 +279,19 @@ export async function runCascade(
         await relay({
           event: 'error',
           errorClass,
-          message: outcome.message,
+          message: failed.message,
           attempts: summarize(attempts),
         });
         return {
           ok: false,
           totalCostUsd: totalCost,
           attempts,
-          error: { class: errorClass, message: outcome.message },
+          error: { class: errorClass, message: failed.message },
         };
       }
     }
   }
 
-  // Loop ended without a terminal return: every remaining candidate was
-  // cooling-down or over budget.
   await relay({
     event: 'error',
     errorClass: 'unknown',
@@ -341,6 +315,7 @@ function successResult(
     usage: outcome.usage,
     totalCostUsd: totalCost,
     attempts,
+    ...(outcome.toolCalls.length > 0 ? { toolCalls: outcome.toolCalls } : {}),
   };
 }
 
@@ -362,7 +337,6 @@ function skippedAttempt(index: number, candidate: { provider: Provider; model: M
 
 type Relay = (event: UnsequencedRouterEvent) => Promise<void>;
 
-/** A `RouterEvent` without its `seq`; the cascade assigns seqs as frames leave. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type UnsequencedRouterEvent = DistributiveOmit<RouterEvent, 'seq'>;
 
@@ -384,6 +358,7 @@ type CandidateOutcome =
       stopReason?: string;
       usage: Usage;
       costUsd: number;
+      toolCalls: Array<{ id: string; name: string; input: unknown; signature?: string }>;
     }
   | {
       kind: 'failed';
@@ -407,6 +382,7 @@ async function attemptCandidate(params: AttemptParams): Promise<CandidateOutcome
   let firstOutputAt: number | undefined;
   let usage: Usage = emptyUsage();
   let stopReason: string | undefined;
+  const toolCalls: Array<{ id: string; name: string; input: unknown; signature?: string }> = [];
 
   const markFirstOutput = () => {
     if (!hasOutput) {
@@ -444,6 +420,12 @@ async function attemptCandidate(params: AttemptParams): Promise<CandidateOutcome
 
         case 'tool_call':
           markFirstOutput();
+          toolCalls.push({
+            id: event.id,
+            name: event.name,
+            input: event.input,
+            ...(event.signature ? { signature: event.signature } : {}),
+          });
           await relay({
             event: 'tool',
             id: event.id,
@@ -475,7 +457,7 @@ async function attemptCandidate(params: AttemptParams): Promise<CandidateOutcome
 
     await health.record(credentialId, { ok: true, ttftMs });
 
-    return { kind: 'success', stopReason, usage, costUsd };
+    return { kind: 'success', stopReason, usage, costUsd, toolCalls };
   } catch (error) {
     const adapterError =
       error instanceof AdapterError ? error : toAdapterError(error, model);

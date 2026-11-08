@@ -1,4 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  APIError as AnthropicAPIError,
+  APIUserAbortError,
+} from '@anthropic-ai/sdk';
 import {
   AdapterError,
   type Block,
@@ -16,22 +21,10 @@ import type {
   ModelInfo,
   ProviderAdapter,
   ValidationResult,
-} from '../types.js';
-import { modelsFor } from '../catalog.js';
-import { parseRetryAfter, safeMessage } from '../types.js';
+} from './types.js';
+import { modelsFor } from './catalog.js';
+import { parseRetryAfter, safeMessage } from './types.js';
 
-/**
- * Anthropic adapter.
- *
- * Notes that matter for routing correctness:
- *  - Thinking blocks carry a signature that must round-trip verbatim on the
- *    same model. They are cached per conversation below so a same-model retry
- *    does not lose reasoning, and are dropped on a model switch by the router.
- *  - Assistant prefill is not permitted on current models; we never send a
- *    trailing assistant turn.
- *  - Tool inputs arrive as complete JSON blocks in the blocks API — no partial
- *    argument buffering needed here.
- */
 const API_VERSION = '2023-06-01';
 
 function toAnthropicContent(
@@ -108,8 +101,6 @@ function toAnthropicTools(
 }
 
 function usageFromAnthropic(msg: Anthropic.Messages.Message): Usage {
-  // Anthropic reports input_tokens exclusive of cache tokens, matching the
-  // canonical convention, so no normalization is needed.
   return {
     inputTokens: msg.usage.input_tokens,
     outputTokens: msg.usage.output_tokens,
@@ -144,11 +135,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   async validateCredential(config: AdapterConfig): Promise<ValidationResult> {
     try {
       const client = this.client(config);
-      // The cheapest honest check: token counting, no model invocation, no spend.
-      await client.messages.countTokens({
-        model: this.models[0]?.modelId ?? 'claude-haiku-5-5',
-        messages: [{ role: 'user', content: 'ping' }],
-      });
+      await client.models.list({ limit: 1 });
       return { ok: true };
     } catch (error) {
       return {
@@ -188,9 +175,10 @@ export class AnthropicAdapter implements ProviderAdapter {
     if (request.stopSequences?.length) body.stop_sequences = request.stopSequences;
     if (request.temperature !== undefined) body.temperature = request.temperature;
 
-    // Thinking is on by default on current models and cannot be disabled.
-    // Request a summary so the relay has something to show during long turns.
-    body.thinking = { type: 'adaptive', display: 'summarized' } as never;
+    if (this.capabilities(modelId).reasoning) {
+      // Request a summary so the relay has something to show during long turns.
+      body.thinking = { type: 'adaptive', display: 'summarized' } as never;
+    }
 
     let usage: Usage = {
       inputTokens: 0,
@@ -234,14 +222,6 @@ export class AnthropicAdapter implements ProviderAdapter {
             }
             break;
 
-          case 'error':
-            throw new AdapterError({
-              class: 'overloaded',
-              message: event.error.message,
-              provider: this.id,
-              model: modelId,
-            });
-
           default:
             break;
         }
@@ -273,12 +253,12 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   classifyError(error: unknown): ErrorClass {
     if (error instanceof AdapterError) return error.class;
-    if (error instanceof Anthropic.APIError) {
+    if (error instanceof AnthropicAPIError) {
       return classifyAnthropicError(error);
     }
-    if (error instanceof Anthropic.APIConnectionTimeoutError) return 'timeout';
-    if (error instanceof Anthropic.APIConnectionError) return 'overloaded';
-    if (error instanceof Anthropic.AbortError) return 'timeout';
+    if (error instanceof APIConnectionTimeoutError) return 'timeout';
+    if (error instanceof APIConnectionError) return 'overloaded';
+    if (error instanceof APIUserAbortError) return 'timeout';
     return 'unknown';
   }
 
@@ -292,7 +272,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     let httpStatus: number | undefined;
     let retryAfterMs: number | undefined;
 
-    if (error instanceof Anthropic.APIError) {
+    if (error instanceof AnthropicAPIError) {
       httpStatus = error.status;
       retryAfterMs = parseRetryAfter(
         (error.headers?.['retry-after'] as string | undefined) ?? undefined,
@@ -332,7 +312,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 }
 
-export function classifyAnthropicError(error: Anthropic.APIError): ErrorClass {
+export function classifyAnthropicError(error: AnthropicAPIError): ErrorClass {
   const status = error.status;
   const message = (error.message ?? '').toLowerCase();
 
@@ -373,5 +353,4 @@ function mapStopReason(
   }
 }
 
-/** Exported for tests: lets the adapter be exercised without a network. */
 export const __test = { toAnthropicMessages, classifyAnthropicError, estimateTokens };

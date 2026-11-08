@@ -1,11 +1,5 @@
 import { z } from 'zod';
 
-/**
- * A JSON Schema subset that every supported provider can represent without
- * lossy translation. Keep this conservative: anything richer has to be lowered
- * at the adapter boundary, and silent lowering is how tool calls break on
- * failover.
- */
 export const JsonSchemaSchema: z.ZodType<unknown> = z.lazy(() =>
   z.object({
     type: z
@@ -26,7 +20,6 @@ export const ToolDefSchema = z.object({
   name: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
   description: z.string(),
   inputSchema: JsonSchemaSchema,
-  /** Mark executed server-side by us, not by the model provider. */
   strict: z.boolean().optional(),
 });
 

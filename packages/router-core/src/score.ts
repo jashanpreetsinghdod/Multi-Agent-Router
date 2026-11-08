@@ -7,26 +7,17 @@ import {
 import type { ModelInfo } from '@omnirouter/providers';
 import type { CredentialHealth } from './types.js';
 
-/**
- * Scoring is a pure function of (request features, model, health, weights).
- * No network, no clock (except the injected `now`), no randomness — so every
- * routing decision in a test is reproducible, and an incident can be replayed
- * from a stored request.
- */
 export interface ScoreInput {
   model: ModelInfo;
   request: ChatRequest;
   health: CredentialHealth;
   quality: number;
   weights: { quality: number; cost: number; latency: number; reliability: number };
-  /** Normalizing constants computed across the candidate set. */
   maxCost: number;
   maxTtft: number;
 }
 
 export function estimatedUsage(request: ChatRequest, features: ReturnType<typeof extractTaskFeatures>): Usage {
-  // Output is unknowable up front. Assume ~40% of the input length, floored at
-  // 256 and capped at the model's max — enough to rank cheap vs. expensive.
   const output = Math.min(
     4096,
     Math.max(256, Math.round(features.estimatedInputTokens * 0.4)),
@@ -39,11 +30,6 @@ export function estimatedUsage(request: ChatRequest, features: ReturnType<typeof
   };
 }
 
-/**
- * Quality per task family. The caller passes a prior keyed by routerId; if a
- * model is missing from it, fall back to the `general` prior, then to a low
- * default so unknown models never win by accident.
- */
 export function scoreCandidate(input: ScoreInput): number {
   const { model, request, health, quality, weights, maxCost, maxTtft } = input;
 
@@ -76,7 +62,6 @@ export function scoreCandidate(input: ScoreInput): number {
   );
 }
 
-/** Task family drives which quality row seeds the score. */
 export function taskFamily(request: ChatRequest): string {
   const features = extractTaskFeatures(request);
   if (features.hasImages) return 'vision';

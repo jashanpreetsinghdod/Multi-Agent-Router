@@ -2,19 +2,6 @@ import { z } from 'zod';
 import { UsageSchema } from './response.js';
 import { StopReasonSchema } from './response.js';
 
-/**
- * The adapter's streaming vocabulary. Deliberately small and uniform across
- * providers so the router, the SSE relay, and the persistence layer all speak
- * one language.
- *
- * Invariants every adapter must uphold:
- *   1. Exactly one `start` is yielded before any delta.
- *   2. Exactly one `usage` is yielded before `done` (zeros allowed).
- *   3. `done` or a thrown AdapterError terminates the stream, never both.
- *   4. Tool-call arguments are buffered by the adapter and emitted complete in
- *      a single `tool_call` event — partial argument JSON is not exposed, since
- *      every downstream consumer would have to reimplement the same buffer.
- */
 export const StatusEventSchema = z.object({
   type: z.literal('start'),
   provider: z.string(),
@@ -29,10 +16,6 @@ export const TextDeltaEventSchema = z.object({
 export const ThinkingDeltaEventSchema = z.object({
   type: z.literal('thinking_delta'),
   text: z.string(),
-  /**
-   * Provider-specific block that must round-trip verbatim on the same
-   * conversation, and must be dropped on a model switch.
-   */
   signature: z.string().optional(),
 });
 
@@ -41,6 +24,7 @@ export const ToolCallEventSchema = z.object({
   id: z.string(),
   name: z.string(),
   input: z.unknown(),
+  signature: z.string().optional(),
 });
 
 export const UsageEventSchema = z.object({

@@ -13,25 +13,10 @@ import type {
   ModelInfo,
   ProviderAdapter,
   ValidationResult,
-} from '../types.js';
-import { modelsFor } from '../catalog.js';
-import { blocksToText, parseRetryAfter, safeMessage } from '../types.js';
+} from './types.js';
+import { modelsFor } from './catalog.js';
+import { blocksToText, parseRetryAfter, safeMessage } from './types.js';
 
-/**
- * Google Gemini adapter, raw REST over fetch.
- *
- * Chosen over the SDK because the streaming surface is stable and small, and
- * the SDK's type churn is a liability for a package that must outlive it.
- * All request building is pure functions, so the adapter is testable without
- * a network.
- *
- * Provider-specific quirks handled here:
- *  - `role: 'model'` instead of `'assistant'`; system prompts go in their own field.
- *  - Function responses must reference the function name, not just the call id.
- *    The adapter keeps a callId→name map across the request for this reason.
- *  - Token counts live under `usageMetadata`, with `cachedContentTokenCount`
- *    included in `promptTokenCount` — subtracted to match the canonical shape.
- */
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GeminiPart {
@@ -40,6 +25,8 @@ interface GeminiPart {
   fileData?: { mimeType: string; fileUri: string };
   functionCall?: { name: string; args: Record<string, unknown> };
   functionResponse?: { name: string; response: Record<string, unknown> };
+  thoughtSignature?: string;
+  thought?: boolean;
 }
 
 interface GeminiContent {
@@ -70,6 +57,8 @@ function toGeminiContents(request: ChatRequest): {
 
   for (const message of request.messages) {
     const parts: GeminiPart[] = [];
+    // Signatures are only meaningful to Google; drop ones from other providers' turns.
+    const fromGoogle = message.producedBy?.provider === 'google';
 
     for (const block of message.blocks) {
       switch (block.type) {
@@ -85,8 +74,6 @@ function toGeminiContents(request: ChatRequest): {
               },
             });
           } else {
-            // Gemini requires the file to be uploaded or fetched server-side;
-            // inline it at the route layer before reaching the adapter.
             parts.push({
               fileData: {
                 mimeType: block.source.mediaType ?? 'image/jpeg',
@@ -102,6 +89,8 @@ function toGeminiContents(request: ChatRequest): {
               name: block.name,
               args: (block.input ?? {}) as Record<string, unknown>,
             },
+            thoughtSignature:
+              fromGoogle && block.signature ? block.signature : 'skip_thought_signature_validator',
           });
           break;
         case 'tool_result':
@@ -162,8 +151,8 @@ export class GoogleAdapter implements ProviderAdapter {
   async validateCredential(config: AdapterConfig): Promise<ValidationResult> {
     try {
       const response = await fetch(
-        `${config.baseUrl ?? API_BASE}/models?key=${encodeURIComponent(config.apiKey)}&pageSize=1`,
-        { signal: config.signal },
+        `${config.baseUrl ?? API_BASE}/models?pageSize=1`,
+        { headers: { 'x-goog-api-key': config.apiKey }, signal: config.signal },
       );
       if (response.ok) return { ok: true };
       const body = await response.text();
@@ -227,7 +216,7 @@ export class GoogleAdapter implements ProviderAdapter {
 
     const url =
       `${config.baseUrl ?? API_BASE}/models/${encodeURIComponent(modelId)}` +
-      `:streamGenerateContent?alt=sse&key=${encodeURIComponent(config.apiKey)}`;
+      `:streamGenerateContent?alt=sse`;
 
     yield { type: 'start', provider: this.id, model: modelId };
 
@@ -242,7 +231,12 @@ export class GoogleAdapter implements ProviderAdapter {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...config.headers },
+        // Key in a header, not the URL, so it never lands in access logs.
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': config.apiKey,
+          ...config.headers,
+        },
         body: JSON.stringify(body),
         signal: config.signal,
       });
@@ -272,13 +266,14 @@ export class GoogleAdapter implements ProviderAdapter {
       const decoder = new TextDecoder();
       let buffer = '';
 
+      let sawContent = false;
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+        buffer = (buffer + (value ? decoder.decode(value, { stream: !done }) : '')).replace(/\r\n/g, '\n');
         const frames = buffer.split('\n\n');
-        buffer = frames.pop() ?? '';
+        // At end of stream, the last frame may lack its trailing blank line.
+        buffer = done ? '' : (frames.pop() ?? '');
 
         for (const frame of frames) {
           const dataLine = frame
@@ -314,18 +309,32 @@ export class GoogleAdapter implements ProviderAdapter {
 
           for (const part of candidate.content?.parts ?? []) {
             if (typeof part.text === 'string' && part.text) {
-              yield { type: 'text_delta', text: part.text };
+              sawContent = true;
+              if (part.thought) yield { type: 'thinking_delta', text: part.text };
+              else yield { type: 'text_delta', text: part.text };
             }
             if (part.functionCall) {
+              sawContent = true;
               yield {
                 type: 'tool_call',
                 id: `call_${Math.random().toString(36).slice(2, 12)}`,
                 name: part.functionCall.name,
                 input: part.functionCall.args ?? {},
+                ...(part.thoughtSignature ? { signature: part.thoughtSignature } : {}),
               };
             }
           }
         }
+        if (done) break;
+      }
+
+      if (!sawContent && finishReason !== 'MAX_TOKENS') {
+        throw new AdapterError({
+          class: finishReason === 'SAFETY' || finishReason === 'PROHIBITED_CONTENT' ? 'content_filter' : 'unknown',
+          message: `gemini returned no content (finishReason ${finishReason})`,
+          provider: this.id,
+          model: modelId,
+        });
       }
 
       yield { type: 'usage', usage };

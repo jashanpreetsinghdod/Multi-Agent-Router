@@ -1,13 +1,11 @@
 import { z } from 'zod';
 
-/** Inline base64 image. Used for user-uploaded and generated images. */
 export const Base64ImageSourceSchema = z.object({
   kind: z.literal('base64'),
   mediaType: z.string().min(1),
   data: z.string().min(1),
 });
 
-/** Remote image URL. Some providers require fetching and inlining these. */
 export const UrlImageSourceSchema = z.object({
   kind: z.literal('url'),
   url: z.string().url(),
@@ -29,7 +27,6 @@ export const TextBlockSchema = z.object({
 export const ImageBlockSchema = z.object({
   type: z.literal('image'),
   source: ImageSourceSchema,
-  /** Optional alt text, carried through when a provider supports it. */
   alt: z.string().optional(),
 });
 
@@ -38,6 +35,7 @@ export const ToolUseBlockSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   input: z.unknown(),
+  signature: z.string().optional(),
 });
 
 export const ToolResultBlockSchema = z.object({
@@ -60,14 +58,6 @@ export type ImageBlock = z.infer<typeof ImageBlockSchema>;
 export type ToolUseBlock = z.infer<typeof ToolUseBlockSchema>;
 export type ToolResultBlock = z.infer<typeof ToolResultBlockSchema>;
 
-/**
- * Roles are deliberately narrow. System prompts live on the request, not in
- * the message list, because every provider wants them somewhere different.
- *
- * `producedBy` marks which model generated an assistant turn. It is what lets
- * the failover path know it is continuing someone else's sentence, and it is
- * how provider-scoped reasoning blocks get stripped on a model switch.
- */
 export const MessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
   blocks: z.array(BlockSchema).min(1),

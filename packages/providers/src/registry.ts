@@ -4,10 +4,6 @@ import { AnthropicAdapter } from './anthropic.js';
 import { OpenAiAdapter, OpenAiCompatibleAdapter } from './openai.js';
 import { GoogleAdapter } from './google.js';
 
-/**
- * The registry is the only place adapters are constructed. Everything else
- * asks for one by provider id.
- */
 export class AdapterRegistry {
   private readonly adapters = new Map<Provider, ProviderAdapter>();
 
@@ -39,5 +35,4 @@ export function defaultAdapters(): ProviderAdapter[] {
   ];
 }
 
-/** Process-wide registry. Tests construct their own. */
 export const registry = new AdapterRegistry();

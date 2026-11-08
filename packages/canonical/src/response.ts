@@ -1,16 +1,11 @@
 import { z } from 'zod';
 import { BlockSchema } from './messages.js';
 
-/**
- * Token accounting is stored per run, per attempt. Costs are always computed
- * from these numbers and the catalog price, never trusted from the provider.
- */
 export const UsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   cacheReadTokens: z.number().int().nonnegative().default(0),
   cacheWriteTokens: z.number().int().nonnegative().default(0),
-  /** Provider-reported total, when it disagrees with input + output. */
   providerReportedTotal: z.number().int().nonnegative().optional(),
 });
 

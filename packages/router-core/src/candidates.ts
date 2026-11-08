@@ -26,25 +26,10 @@ const NEUTRAL_HEALTH: CredentialHealth = {
   ttftEmaMs: 1200,
 };
 
-/**
- * Turn a request into an ordered candidate list.
- *
- * Order of operations matters and is deliberate:
- *   1. Hard filters (availability, capability, context, provider policy).
- *   2. Health filter (cooling-down candidates are dropped, not deprioritized —
- *      a candidate we know is throttled wastes the user's time).
- *   3. Scoring and ordering.
- *   4. Truncation to a bounded attempt list, so a cascade can never become an
- *      unbounded sequence of paid attempts.
- *
- * A pinned model skips scoring but still fails over to a different provider
- * when the pinned provider is clearly unavailable — otherwise the product's
- * core promise breaks exactly when the user needs it.
- */
 export async function buildDecision(input: CandidateInput): Promise<RoutingDecision> {
   const now = input.now ?? Date.now();
   const { request, models, modelPolicy, health } = input;
-  const weights: RoutingWeights = DEFAULT_WEIGHTS;
+  const weights: RoutingWeights = input.weights ?? DEFAULT_WEIGHTS;
 
   const pinnedModel = parsePinnedModel(modelPolicy);
   const pinned = pinnedModel !== undefined;
@@ -116,16 +101,16 @@ export async function buildDecision(input: CandidateInput): Promise<RoutingDecis
 
   // ── 2. Health ────────────────────────────────────────────────────────────
   const healthByCredential = new Map<string, CredentialHealth>();
+  const credIds = [...new Set(fits.map(credentialOf))];
   await Promise.all(
-    fits.map(async (m) => {
-      if (healthByCredential.has(m.provider)) return;
-      const h = (await health.get(m.provider)) ?? { ...NEUTRAL_HEALTH };
-      healthByCredential.set(m.provider, h);
+    credIds.map(async (id) => {
+      const h = (await health.get(id)) ?? { ...NEUTRAL_HEALTH };
+      healthByCredential.set(id, h);
     }),
   );
 
   const healthy = fits.filter((m) => {
-    const h = healthByCredential.get(m.provider);
+    const h = healthByCredential.get(credentialOf(m));
     return !h || h.cooldownUntil <= now;
   });
 
@@ -164,7 +149,7 @@ export async function buildDecision(input: CandidateInput): Promise<RoutingDecis
 
   const family = taskFamily(request);
   const top = selected[0]!;
-  const topHealth = healthByCredential.get(top.provider) ?? NEUTRAL_HEALTH;
+  const topHealth = healthByCredential.get(credentialOf(top)) ?? NEUTRAL_HEALTH;
   const topQuality = qualityOf(top, input.qualityPrior);
 
   return {
@@ -183,11 +168,11 @@ function toCandidate(
   _index: number,
   prior: Record<string, number> | undefined,
 ): Candidate {
-  const h = healthByCredential.get(model.provider) ?? NEUTRAL_HEALTH;
+  const h = healthByCredential.get(credentialOf(model)) ?? NEUTRAL_HEALTH;
   return {
     model,
     provider: model.provider,
-    credentialId: model.provider,
+    credentialId: credentialOf(model),
     score: scoreCandidate({
       model,
       request,
@@ -213,7 +198,7 @@ function rank(
   const hint = request.hints;
 
   const scores = models.map((model) => {
-    const h = healthByCredential.get(model.provider) ?? NEUTRAL_HEALTH;
+    const h = healthByCredential.get(credentialOf(model)) ?? NEUTRAL_HEALTH;
     const quality = qualityOf(model, prior, family);
     return {
       model,
@@ -231,16 +216,12 @@ function rank(
   });
 
   if (hint?.preferSpeed) {
-    // Latency-weighted rerank: fold measured TTFT in explicitly rather than
-    // relying on the small default weight, so "fast" actually means fast.
     for (const entry of scores) {
-      const h = healthByCredential.get(entry.model.provider) ?? NEUTRAL_HEALTH;
+      const h = healthByCredential.get(credentialOf(entry.model)) ?? NEUTRAL_HEALTH;
       entry.score -= (h.ttftEmaMs / 3000) * 0.8;
     }
   }
 
-  // Long-context requests get a mild preference for large windows: a model
-  // that barely fits is more likely to fail mid-conversation.
   if (features.longContext) {
     for (const entry of scores) {
       if (entry.model.contextWindow >= 500_000) entry.score += 0.05;
@@ -267,22 +248,20 @@ export function qualityOf(
   );
 }
 
+function credentialOf(model: ModelInfo & { credentialId?: string }): string {
+  return model.credentialId ?? model.provider;
+}
+
 function parsePinnedModel(policy: string): string | undefined {
   if (!policy || policy === 'auto' || policy.startsWith('auto:')) return undefined;
   return policy;
 }
 
-/** Bounds the cascade. Three attempts is the point where more failover stops helping. */
 function maxAttempts(policy: string): number {
   if (policy === 'auto:cheap' || policy === 'auto:fast') return 2;
   return 3;
 }
 
-/**
- * The catalog is passed in per request, so the adapter is only needed for
- * capability lookups the catalog does not carry. Kept here to make the
- * default explicit.
- */
 export function fallbackCapabilities(): typeof DEFAULT_CAPABILITIES {
   return DEFAULT_CAPABILITIES;
 }

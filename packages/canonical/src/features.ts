@@ -1,10 +1,6 @@
 import { z } from 'zod';
 import type { ChatRequest } from './request.js';
 
-/**
- * Structural facts about a request, derived without any network call. These
- * are what the router scores against — no classifier model in the hot path.
- */
 export const TaskFeaturesSchema = z.object({
   hasImages: z.boolean(),
   hasPdf: z.boolean(),
@@ -12,7 +8,6 @@ export const TaskFeaturesSchema = z.object({
   wantsStructuredOutput: z.boolean(),
   estimatedInputTokens: z.number().int().nonnegative(),
   turnCount: z.number().int().nonnegative(),
-  /** Heuristics below. Useful for routing, never shown to the user as fact. */
   looksLikeCode: z.boolean(),
   looksLikeReasoning: z.boolean(),
   looksLikeSummarization: z.boolean(),
@@ -22,14 +17,6 @@ export const TaskFeaturesSchema = z.object({
 
 export type TaskFeatures = z.infer<typeof TaskFeaturesSchema>;
 
-/**
- * Cheap token estimator. Deliberately rough (±15% vs. real tokenizers): it is
- * used for routing and budgeting, never for billing. Providers report exact
- * usage, and that is what gets persisted.
- *
- * Calibrated for mixed English/code at ~4 chars per token, with a floor for
- * CJK, which is closer to 1.5 chars per token.
- */
 export function estimateTokens(text: string): number {
   if (!text) return 0;
   let ascii = 0;
