@@ -1,0 +1,28 @@
+{
+  "name": "omnirouter",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11.5.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "db:generate": "npm run -w @omnirouter/db generate",
+    "db:migrate": "npm run -w @omnirouter/db migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
