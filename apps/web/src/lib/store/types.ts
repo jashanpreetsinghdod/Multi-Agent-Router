@@ -84,6 +84,10 @@ export interface Store {
   readonly kind: 'memory' | 'postgres';
 
   resolveOwner(sessionId: string): Promise<string>;
+  /** Like resolveOwner but never creates a guest. */
+  findGuestOwner(sessionId: string): Promise<string | undefined>;
+  /** Move a guest's keys, chats and router keys to a signed-in user, then delete the guest. */
+  mergeOwners(from: string, to: string): Promise<{ credentials: number; conversations: number }>;
 
   listCredentials(owner: string): Promise<CredentialRecord[]>;
   getCredential(owner: string, id: string): Promise<CredentialRecord | undefined>;

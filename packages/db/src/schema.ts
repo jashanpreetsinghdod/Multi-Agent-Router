@@ -33,8 +33,11 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => ({
+  emailIndex: uniqueIndex('users_email_idx').on(t.email),
+}));
 
+// Better Auth sessions (signed-in users).
 export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id')
@@ -45,6 +48,9 @@ export const sessions = pgTable('sessions', {
   ipAddress: text('ip_address'),
   userAgent: text('user_agent'),
   createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
 }, (t) => ({
@@ -60,7 +66,16 @@ export const accounts = pgTable('accounts', {
   providerId: varchar('provider_id', { length: 255 }).notNull(),
   accountId: varchar('account_id', { length: 255 }).notNull(),
   accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+  scope: text('scope'),
+  password: text('password'),
   createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
 }, (t) => ({
@@ -68,6 +83,29 @@ export const accounts = pgTable('accounts', {
     t.providerId,
     t.accountId,
   ),
+  userIndex: index('accounts_user_idx').on(t.userId),
+}));
+
+export const verification = pgTable('verification', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  identifierIndex: index('verification_identifier_idx').on(t.identifier),
+}));
+
+// Guest (not signed in) browsers: token = sha256(omni_sid cookie).
+export const guestSessions = pgTable('guest_sessions', {
+  token: varchar('token', { length: 64 }).primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIndex: index('guest_sessions_user_idx').on(t.userId),
 }));
 
 // ── Tenancy ──────────────────────────────────────────────────────────────────
@@ -425,6 +463,8 @@ export type DbTables = {
   users: typeof users;
   sessions: typeof sessions;
   accounts: typeof accounts;
+  verification: typeof verification;
+  guestSessions: typeof guestSessions;
   organizations: typeof organizations;
   members: typeof members;
   providerCredentials: typeof providerCredentials;
@@ -446,6 +486,8 @@ export const schema = {
   users,
   sessions,
   accounts,
+  verification,
+  guestSessions,
   organizations,
   members,
   providerCredentials,

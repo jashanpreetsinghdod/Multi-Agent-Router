@@ -8,8 +8,9 @@ export { strictSsl } from './ssl.js';
 export { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 export type Database = NodePgDatabase;
+export type Pool = pg.Pool;
 
-export function createDb(connectionString?: string): Database {
+export function createPool(connectionString?: string): pg.Pool {
   const url = connectionString ?? process.env.DATABASE_URL;
   if (!url) {
     throw new Error('DATABASE_URL is not set');
@@ -23,6 +24,9 @@ export function createDb(connectionString?: string): Database {
   });
   // An idle client erroring (e.g. Neon scaling to zero) must not crash the process.
   pool.on('error', () => {});
-  return drizzle(pool);
+  return pool;
 }
 
+export function createDb(pool: pg.Pool = createPool()): Database {
+  return drizzle(pool);
+}

@@ -165,7 +165,7 @@ export function SettingsPanel({ open, onClose, onChanged }: SettingsPanelProps) 
             <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Your API keys</h3>
             <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
               We check each key with the provider and list the models it can use. Pick which ones the router may use.
-              Keys stay on the server for this browser session only, are never sent back to the page, and are cleared when the server restarts.
+              Keys are stored encrypted on the server and are never sent back to the page.
             </p>
 
             {credentials.length > 0 && (

@@ -5,7 +5,7 @@ import { useChat, type StoredUiMessage } from '@/hooks/use-chat';
 import { MessageList } from '@/components/message-list';
 import { ChatInput } from '@/components/chat-input';
 import { ModelSelector, type SelectableModel } from '@/components/model-selector';
-import { Sidebar } from '@/components/sidebar';
+import { Sidebar, type Me } from '@/components/sidebar';
 import { SettingsPanel } from '@/components/settings-panel';
 
 interface ConversationSummary {
@@ -25,6 +25,8 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | undefined>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const loadModels = useCallback(async () => {
     try {
@@ -48,10 +50,18 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ user: null, loginAvailable: false }));
     void loadModels().then((list) => {
       if (list.length === 0) setSettingsOpen(true);
     });
     loadConversations();
+
+    const merged = new URLSearchParams(window.location.search).get('merged');
+    if (merged) {
+      const [keys = '0', chats = '0'] = merged.split(',');
+      setNotice(`Signed in. Moved ${keys} key(s) and ${chats} chat(s) from guest mode into your account.`);
+      window.history.replaceState(null, '', '/');
+    }
   }, [loadModels, loadConversations]);
 
   // A pinned model that was disabled in Settings falls back to Auto.
@@ -102,9 +112,16 @@ export default function ChatPage() {
         onNew={handleNewChat}
         onDelete={handleDeleteConv}
         onOpenSettings={() => setSettingsOpen(true)}
+        me={me}
       />
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {notice && (
+          <div className="px-6 py-2 text-xs flex items-center justify-between" style={{ background: 'var(--accent-subtle)', color: 'var(--accent-hover)' }}>
+            <span>{notice}</span>
+            <button onClick={() => setNotice(null)} aria-label="Dismiss">✕</button>
+          </div>
+        )}
         <div className="h-14 px-6 flex items-center justify-between shrink-0 gap-3" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center gap-3">
             <ModelSelector value={modelPolicy} onChange={setModelPolicy} models={models} />

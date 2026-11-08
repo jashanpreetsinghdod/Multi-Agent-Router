@@ -3,6 +3,7 @@ import { memoryStore } from './memory';
 import { createPostgresStore } from './postgres';
 import type { Store } from './types';
 import { sessionIdFrom } from '../session';
+import { signedInUser } from '../auth';
 
 export type * from './types';
 
@@ -15,7 +16,10 @@ export function getStore(): Store {
   return g.__omniStore;
 }
 
+/** Signed-in user's id if there is one, otherwise this browser's guest id. */
 export async function ownerFrom(req: NextRequest): Promise<string | undefined> {
+  const user = await signedInUser(req.headers);
+  if (user) return user.id;
   const sid = sessionIdFrom(req);
   return sid ? getStore().resolveOwner(sid) : undefined;
 }

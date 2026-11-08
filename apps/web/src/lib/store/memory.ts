@@ -49,6 +49,13 @@ export const memoryStore: Store = {
   async resolveOwner(sessionId) {
     return sessionId;
   },
+  async findGuestOwner(sessionId) {
+    return sessionId;
+  },
+  // Sign-in needs a database, so there is never anything to merge in memory mode.
+  async mergeOwners() {
+    return { credentials: 0, conversations: 0 };
+  },
 
   async listCredentials(owner) {
     return [...(state.credentials.get(owner)?.values() ?? [])].map(clone);

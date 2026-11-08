@@ -5,17 +5,19 @@ import {
   auditLog,
   conversations,
   createDb,
+  createPool,
   desc,
   eq,
+  guestSessions,
   isNull,
   messages,
   providerCredentials,
   routerApiKeys,
   runs,
-  sessions,
   sql,
   users,
   type Database,
+  type Pool,
 } from '@omnirouter/db';
 import { decryptKey, encryptKey } from '@omnirouter/crypto';
 import type { Block, Provider } from '@omnirouter/canonical';
@@ -27,7 +29,6 @@ import type {
   Store,
 } from './types';
 
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_OWNER_CACHE = 10_000;
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -87,11 +88,39 @@ const credentialColumns = {
   createdAt: providerCredentials.createdAt,
 };
 
+const g = globalThis as unknown as {
+  __omniPool?: Pool;
+  __omniDb?: Database;
+  __omniOwners?: Map<string, string>;
+};
+
+/** One pool per process, shared by the store and Better Auth. */
+export function getPool(): Pool {
+  return (g.__omniPool ??= createPool());
+}
+
 export function createPostgresStore(): Store {
   masterKey(); // fail fast on misconfiguration
-  const g = globalThis as unknown as { __omniDb?: Database; __omniOwners?: Map<string, string> };
-  const db = (g.__omniDb ??= createDb());
+  const db = (g.__omniDb ??= createDb(getPool()));
   const ownerCache = (g.__omniOwners ??= new Map());
+
+  function remember(token: string, userId: string) {
+    if (ownerCache.size >= MAX_OWNER_CACHE) ownerCache.clear();
+    ownerCache.set(token, userId);
+  }
+
+  async function findGuest(token: string): Promise<string | undefined> {
+    const cached = ownerCache.get(token);
+    if (cached) return cached;
+    const rows = await db
+      .select({ userId: guestSessions.userId })
+      .from(guestSessions)
+      .where(eq(guestSessions.token, token))
+      .limit(1);
+    const userId = rows[0]?.userId;
+    if (userId) remember(token, userId);
+    return userId;
+  }
 
   async function ownsConversation(owner: string, id: string): Promise<boolean> {
     if (!isUuid(id)) return false;
@@ -108,42 +137,61 @@ export function createPostgresStore(): Store {
 
     async resolveOwner(sessionId) {
       const token = sha256(sessionId);
-      const cached = ownerCache.get(token);
-      if (cached) return cached;
+      const existing = await findGuest(token);
+      if (existing) return existing;
 
-      const existing = await db
-        .select({ userId: sessions.userId })
-        .from(sessions)
-        .where(eq(sessions.token, token))
-        .limit(1);
-      let userId = existing[0]?.userId;
-
+      const [user] = await db
+        .insert(users)
+        .values({ name: 'Guest', email: `anon+${randomUUID()}@anonymous.invalid` })
+        .returning({ id: users.id });
+      // Two parallel first requests race here; the primary key on token makes
+      // one lose, and the loser drops its orphan user and reads the winner.
+      const inserted = await db
+        .insert(guestSessions)
+        .values({ userId: user!.id, token })
+        .onConflictDoNothing({ target: guestSessions.token })
+        .returning({ userId: guestSessions.userId });
+      let userId = inserted[0]?.userId;
       if (!userId) {
-        const [user] = await db
-          .insert(users)
-          .values({ name: 'Guest', email: `anon+${randomUUID()}@anonymous.invalid` })
-          .returning({ id: users.id });
-        const inserted = await db
-          .insert(sessions)
-          .values({ userId: user!.id, token, expiresAt: new Date(Date.now() + SESSION_TTL_MS) })
-          .onConflictDoNothing({ target: sessions.token })
-          .returning({ userId: sessions.userId });
-        if (inserted[0]) {
-          userId = inserted[0].userId;
-        } else {
-          await db.delete(users).where(eq(users.id, user!.id));
-          const winner = await db
-            .select({ userId: sessions.userId })
-            .from(sessions)
-            .where(eq(sessions.token, token))
-            .limit(1);
-          userId = winner[0]!.userId;
-        }
+        await db.delete(users).where(eq(users.id, user!.id));
+        userId = (await findGuest(token))!;
       }
-
-      if (ownerCache.size >= MAX_OWNER_CACHE) ownerCache.clear();
-      ownerCache.set(token, userId);
+      remember(token, userId);
       return userId;
+    },
+
+    async findGuestOwner(sessionId) {
+      return findGuest(sha256(sessionId));
+    },
+
+    async mergeOwners(from, to) {
+      if (from === to) return { credentials: 0, conversations: 0 };
+      const result = await db.transaction(async (tx) => {
+        // Same API key on both sides: keep the signed-in user's copy.
+        await tx.execute(sql`
+          delete from ${providerCredentials} g
+          where g.user_id = ${from}
+            and exists (select 1 from ${providerCredentials} u
+                        where u.user_id = ${to} and u.key_fingerprint = g.key_fingerprint)`);
+        const creds = await tx
+          .update(providerCredentials)
+          .set({ userId: to })
+          .where(eq(providerCredentials.userId, from))
+          .returning({ id: providerCredentials.id });
+        const convs = await tx
+          .update(conversations)
+          .set({ userId: to })
+          .where(eq(conversations.userId, from))
+          .returning({ id: conversations.id });
+        await tx.update(runs).set({ userId: to }).where(eq(runs.userId, from));
+        await tx.update(routerApiKeys).set({ userId: to }).where(eq(routerApiKeys.userId, from));
+        await tx.update(auditLog).set({ userId: to }).where(eq(auditLog.userId, from));
+        // Only delete true guests; never a real account.
+        await tx.delete(users).where(and(eq(users.id, from), sql`${users.email} like 'anon+%@anonymous.invalid'`));
+        return { credentials: creds.length, conversations: convs.length };
+      });
+      for (const [token, id] of ownerCache) if (id === from) ownerCache.delete(token);
+      return result;
     },
 
     // ── credentials ────────────────────────────────────────────────────────
