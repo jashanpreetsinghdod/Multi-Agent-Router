@@ -111,6 +111,13 @@ export function Sidebar({
 
       <div className="p-3 space-y-1" style={{ borderTop: '1px solid var(--border)' }}>
         <AccountBox me={me} />
+        <a
+          href="/docs"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-[var(--bg-hover)]"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          Docs
+        </a>
         <button
           onClick={onOpenSettings}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
